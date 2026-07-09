@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swiftpm:
+    name: SwiftPM
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Print Swift and Xcode diagnostics
+        run: |
+          set -euo pipefail
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR}"
+          xcode-select -p
+          xcodebuild -version
+          swift --version
+          xcrun --find swift
+          xcrun --find xctest
+
+      - name: Describe package
+        run: swift package describe
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
