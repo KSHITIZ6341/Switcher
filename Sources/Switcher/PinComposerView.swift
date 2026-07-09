@@ -25,9 +25,7 @@ struct PinComposerView: View {
         }
         .frame(width: model.composerSource == .installedApp ? 760 : 700, height: model.composerSource == .installedApp ? 740 : 560)
         .onAppear {
-            if model.composerSource == .installedApp {
-                searchText = ""
-            }
+            searchText = ""
         }
         .animation(.easeInOut(duration: 0.2), value: model.composerSelectedBundleID)
     }
@@ -119,15 +117,25 @@ struct PinComposerView: View {
     private var runningWindowSection: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("Running Windows", systemImage: "macwindow.on.rectangle")
-                    .font(.headline)
+                HStack {
+                    Label("Running Windows", systemImage: "macwindow.on.rectangle")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(filteredRunningWindows.count) windows")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-                if model.runningWindows.isEmpty {
+                TextField("Search windows", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body)
+
+                if filteredRunningWindows.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "rectangle.stack.badge.xmark")
                             .font(.title3)
                             .foregroundStyle(.secondary)
-                        Text("No running windows found")
+                        Text(model.runningWindows.isEmpty ? "No running windows found" : "No windows match your search")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -135,7 +143,7 @@ struct PinComposerView: View {
                 } else {
                     ScrollView {
                         VStack(spacing: 8) {
-                            ForEach(model.runningWindows) { window in
+                            ForEach(filteredRunningWindows) { window in
                                 RunningWindowRow(
                                     window: window,
                                     isSelected: String(window.windowID) == model.composerSelectedWindowID
@@ -190,12 +198,18 @@ struct PinComposerView: View {
                     Text("Sidebar Size")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text("Width is fixed at 25% of the selected display. Height is the full screen height.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Add up to 3 apps on one side. They stack vertically and split the height evenly.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Slider(
+                            value: $model.composerWidth,
+                            in: Double(PinnedAppConfig.minWidth)...Double(PinnedAppConfig.maxWidth),
+                            step: 10
+                        )
+
+                        Text("\(Int(model.composerWidth.rounded())) px")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 72, alignment: .trailing)
+                    }
                 }
             }
         }
@@ -244,6 +258,18 @@ struct PinComposerView: View {
         return model.installedApps.filter { app in
             app.name.localizedCaseInsensitiveContains(query)
                 || app.bundleId.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var filteredRunningWindows: [RunningWindow] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return model.runningWindows
+        }
+
+        return model.runningWindows.filter { window in
+            window.displayName.localizedCaseInsensitiveContains(query)
+                || window.bundleId.localizedCaseInsensitiveContains(query)
         }
     }
 }

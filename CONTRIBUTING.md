@@ -15,7 +15,7 @@ Thanks for helping improve Switcher. This project is a native macOS Swift app, s
 4. Run the app locally:
 
    ```bash
-   swift run SidebarPin
+   swift run Switcher
    ```
 
 ## Pull requests

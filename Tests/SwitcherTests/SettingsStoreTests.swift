@@ -1,5 +1,5 @@
 import XCTest
-@testable import SidebarPin
+@testable import Switcher
 
 final class SettingsStoreTests: XCTestCase {
     @MainActor
@@ -11,7 +11,7 @@ final class SettingsStoreTests: XCTestCase {
 
     @MainActor
     func testSavesAndLoadsPerAppConfig() {
-        let suiteName = "SidebarPinTests-\(UUID().uuidString)"
+        let suiteName = "SwitcherTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Could not create test defaults")
             return
@@ -34,7 +34,7 @@ final class SettingsStoreTests: XCTestCase {
 
     @MainActor
     func testPersistsAutoHoverSetting() {
-        let suiteName = "SidebarPinTests-Auto-\\(UUID().uuidString)"
+        let suiteName = "SwitcherTests-Auto-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Could not create test defaults")
             return
@@ -50,7 +50,7 @@ final class SettingsStoreTests: XCTestCase {
 
     @MainActor
     func testPersistsBlueButtonAppSelection() {
-        let suiteName = "SidebarPinTests-BlueButtons-\\(UUID().uuidString)"
+        let suiteName = "SwitcherTests-BlueButtons-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Could not create test defaults")
             return

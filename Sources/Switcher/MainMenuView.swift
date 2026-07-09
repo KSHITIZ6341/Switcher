@@ -17,6 +17,7 @@ struct MainMenuView: View {
                     }
 
                     actionCard
+                    pinnedAppsCard
                     controlCard
 
                     if let status = model.statusMessage {
@@ -69,7 +70,7 @@ struct MainMenuView: View {
                 .frame(width: 50, height: 50)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Sidebar Pin")
+                    Text("Switcher")
                         .font(.system(size: 21, weight: .bold, design: .rounded))
                     Text(model.pinnedTargetDisplayName)
                         .font(.subheadline)
@@ -84,6 +85,8 @@ struct MainMenuView: View {
                 } else {
                     StatusChip(text: "Idle", color: .orange)
                 }
+
+                StatusChip(text: "v\(AppVersion.current)", color: .blue)
             }
         }
     }
@@ -95,7 +98,7 @@ struct MainMenuView: View {
                     .font(.headline)
                     .foregroundStyle(.orange)
 
-                Text("Grant Accessibility permission so Sidebar Pin can move and resize other app windows.")
+                Text("Grant Accessibility permission so Switcher can move and resize other app windows.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -257,6 +260,132 @@ struct MainMenuView: View {
                 }
             }
         }
+    }
+
+    private var pinnedAppsCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Text("Pinned Apps")
+                        .font(.headline)
+
+                    Spacer()
+
+                    StatusChip(text: model.sidebarWidthDisplayText, color: .blue)
+                }
+
+                if model.pinnedItems.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "pin")
+                            .foregroundStyle(.secondary)
+                        Text("No pinned apps")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(model.pinnedItems) { item in
+                            pinnedAppRow(for: item)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            model.moveSidebar(to: .left)
+                        } label: {
+                            Label("Left", systemImage: "sidebar.left")
+                        }
+                        .buttonStyle(SoftButtonStyle())
+
+                        Button {
+                            model.moveSidebar(to: .right)
+                        } label: {
+                            Label("Right", systemImage: "sidebar.right")
+                        }
+                        .buttonStyle(SoftButtonStyle())
+
+                        Button {
+                            model.toggleSidebarVisibility()
+                        } label: {
+                            Label(model.isSidebarCollapsed ? "Show" : "Hide", systemImage: model.isSidebarCollapsed ? "arrow.right.to.line" : "arrow.left.to.line")
+                        }
+                        .buttonStyle(SoftButtonStyle())
+                    }
+                    .disabled(!model.pinStatus.isPinned)
+                }
+            }
+        }
+    }
+
+    private func pinnedAppRow(for item: PinnedSidebarItem) -> some View {
+        HStack(spacing: 10) {
+            Group {
+                if let icon = model.icon(forBundleID: item.bundleId) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(systemName: "app")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.displayName(for: item))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Text(model.subtitle(for: item))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 6)
+
+            Button {
+                model.focusPinnedItem(item)
+            } label: {
+                Image(systemName: "arrow.up.forward.app")
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("Bring forward")
+
+            Button {
+                model.movePinnedItem(item, direction: .up)
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(item.index == 0)
+            .help("Move up")
+
+            Button {
+                model.movePinnedItem(item, direction: .down)
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(item.index >= model.pinnedItems.count - 1)
+            .help("Move down")
+
+            Button(role: .destructive) {
+                model.unpinPinnedItem(item)
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("Unpin")
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.52))
+        )
     }
 
     private func messageCard(text: String, color: Color, icon: String) -> some View {

@@ -1,6 +1,10 @@
 import AppKit
 import CoreGraphics
 
+enum AppVersion {
+    static let current = "1.1.0"
+}
+
 enum SidebarEdge: String, Codable, CaseIterable, Identifiable {
     case left
     case right
@@ -71,6 +75,19 @@ struct PinStatus: Equatable {
     var reason: StopReason?
     var targetBundleId: String?
     var pinnedCount: Int = 0
+}
+
+struct PinnedSidebarItem: Identifiable, Equatable {
+    var id: String
+    var bundleId: String
+    var windowID: CGWindowID?
+    var source: AppSelectionSource
+    var index: Int
+}
+
+enum PinnedMoveDirection {
+    case up
+    case down
 }
 
 struct InstalledApp: Identifiable, Hashable {

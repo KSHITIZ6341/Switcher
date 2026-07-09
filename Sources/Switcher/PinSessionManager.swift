@@ -8,12 +8,15 @@ final class PinSessionManager: ObservableObject, PinManaging {
     @Published private(set) var statusMessage: String?
     @Published private(set) var isSidebarCollapsed = false
     @Published private(set) var autoHoverEnabled = false
+    @Published private(set) var pinnedItems: [PinnedSidebarItem] = []
+    @Published private(set) var sidebarWidth = PinnedAppConfig.defaultWidth
 
     private let permissionManager: PermissionManaging
     private let windowController: WindowController
     private let displayManager: DisplayManager
     private let settingsStore: SettingsStore
     private let edgeToggleController = SidebarEdgeToggleWindowController()
+    private let resizeHandleController = ResizeHandleWindowController()
 
     private var stateMachine = PinSessionStateMachine()
     private var monitorTimer: Timer?
@@ -23,7 +26,6 @@ final class PinSessionManager: ObservableObject, PinManaging {
     private(set) var lastRequest: PinRequest?
     private let manualBreakTolerance: CGFloat = 24
     private let enforceTolerance: CGFloat = 2
-    private let sidebarWidthRatio: CGFloat = 0.25
     private let hiddenPeekWidth: CGFloat = 4
     private let edgeTriggerDistance: CGFloat = 8
     private let maxStackCount = 3
@@ -41,6 +43,10 @@ final class PinSessionManager: ObservableObject, PinManaging {
 
     var currentSidebarEdge: SidebarEdge? {
         activeSession?.edge
+    }
+
+    var currentSidebarWidth: CGFloat? {
+        activeSession?.width
     }
 
     init(
@@ -89,9 +95,20 @@ final class PinSessionManager: ObservableObject, PinManaging {
 
         var normalizedRequest = request
         normalizedRequest.displayId = display.id
-        normalizedRequest.width = nil
+        normalizedRequest.width = clampedSidebarWidth(
+            request.width ?? settingsStore.resolvedConfig(
+                for: request.bundleId,
+                fallbackDisplayId: display.id
+            ).preferredWidth,
+            displayFrame: display.frame
+        )
 
-        var session = existingOrFreshSession(for: normalizedRequest, displayID: display.id)
+        var session = existingOrFreshSession(
+            for: normalizedRequest,
+            displayID: display.id,
+            displayFrame: display.frame
+        )
+        normalizedRequest.width = session.width
 
         if let index = indexOfEntry(in: session, matching: normalizedRequest) {
             session.entries[index] = SidebarEntry(request: normalizedRequest, window: managedWindow)
@@ -106,11 +123,17 @@ final class PinSessionManager: ObservableObject, PinManaging {
         activeSession = session
         lastRequest = normalizedRequest
 
-        persistConfig(for: normalizedRequest.bundleId, edge: normalizedRequest.edge, displayID: display.id)
+        persistConfig(
+            for: normalizedRequest.bundleId,
+            edge: normalizedRequest.edge,
+            displayID: display.id,
+            width: session.width
+        )
         windowController.bringToFront(managedWindow)
 
         stateMachine.didUpdate(bundleId: session.entries.last?.request.bundleId, pinnedCount: session.entries.count)
         pinStatus = stateMachine.status
+        publishPinnedItems(from: session)
         statusMessage = session.entries.count > 1
             ? "Pinned \(session.entries.count) apps on \(normalizedRequest.edge.title.lowercased()) edge."
             : nil
@@ -129,9 +152,12 @@ final class PinSessionManager: ObservableObject, PinManaging {
         mouseAwayStartedAt = nil
         dragCandidate = nil
         edgeToggleController.hide()
+        resizeHandleController.hide()
 
         stateMachine.didStop(reason: reason)
         pinStatus = stateMachine.status
+        pinnedItems = []
+        sidebarWidth = PinnedAppConfig.defaultWidth
     }
 
     func repin() async throws {
@@ -141,6 +167,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
             activeSession = session
             stateMachine.didUpdate(bundleId: session.entries.last?.request.bundleId, pinnedCount: session.entries.count)
             pinStatus = stateMachine.status
+            publishPinnedItems(from: session)
             updateEdgeToggle(for: session, display: display, collapsed: isSidebarCollapsed)
             return
         }
@@ -175,19 +202,96 @@ final class PinSessionManager: ObservableObject, PinManaging {
         }
     }
 
-    func unpinWindow(windowID: CGWindowID, bundleID: String) {
-        guard var session = activeSession else {
+    func focusPinnedItem(id: String) {
+        guard let entry = entry(for: id) else {
             return
         }
 
-        let originalCount = session.entries.count
+        windowController.bringToFront(entry.window)
+    }
 
-        session.entries.removeAll { entry in
+    func unpinPinnedItem(id: String) {
+        removePinnedItem(where: { itemID(for: $0.request) == id })
+    }
+
+    func unpinWindow(windowID: CGWindowID, bundleID: String) {
+        removePinnedItem { entry in
             if let entryWindowID = entry.request.windowID {
                 return entryWindowID == windowID
             }
             return entry.request.bundleId == bundleID
         }
+    }
+
+    func movePinnedItem(id: String, direction: PinnedMoveDirection) {
+        guard var session = activeSession else {
+            return
+        }
+
+        guard let index = session.entries.firstIndex(where: { itemID(for: $0.request) == id }) else {
+            return
+        }
+
+        let targetIndex: Int
+        switch direction {
+        case .up:
+            targetIndex = index - 1
+        case .down:
+            targetIndex = index + 1
+        }
+
+        guard session.entries.indices.contains(targetIndex) else {
+            return
+        }
+
+        session.entries.swapAt(index, targetIndex)
+
+        activeSession = session
+        relayoutActiveSession(detectManualMove: false)
+        statusMessage = "Updated pinned app order."
+    }
+
+    func resizeSidebar(deltaX: CGFloat) {
+        guard var session = activeSession,
+              let display = displayManager.display(withID: session.displayID) ?? displayManager.primaryDisplay() else {
+            return
+        }
+
+        let signedDelta = session.edge == .left ? deltaX : -deltaX
+        let newWidth = clampedSidebarWidth(session.width + signedDelta, displayFrame: display.frame)
+        guard abs(newWidth - session.width) >= 1 else {
+            return
+        }
+
+        session.width = newWidth
+        syncEntryWidths(in: &session)
+
+        do {
+            try layout(session: &session, on: display, collapsed: isSidebarCollapsed, detectManualMove: false)
+            activeSession = session
+            publishPinnedItems(from: session)
+            updateEdgeToggle(for: session, display: display, collapsed: isSidebarCollapsed)
+        } catch {
+            statusMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    func finishSidebarResize() {
+        guard let session = activeSession else {
+            return
+        }
+
+        persistConfig(for: session)
+        statusMessage = "Sidebar width set to \(Int(session.width.rounded())) px."
+    }
+
+    private func removePinnedItem(where shouldRemove: (SidebarEntry) -> Bool) {
+        guard var session = activeSession else {
+            return
+        }
+
+        let originalCount = session.entries.count
+        session.entries.removeAll(where: shouldRemove)
 
         guard session.entries.count != originalCount else {
             return
@@ -243,12 +347,11 @@ final class PinSessionManager: ObservableObject, PinManaging {
         try layout(session: &session, on: display, collapsed: isSidebarCollapsed, detectManualMove: false)
         activeSession = session
 
-        for entry in session.entries {
-            persistConfig(for: entry.request.bundleId, edge: edge, displayID: session.displayID)
-        }
+        persistConfig(for: session)
 
         stateMachine.didUpdate(bundleId: session.entries.last?.request.bundleId, pinnedCount: session.entries.count)
         pinStatus = stateMachine.status
+        publishPinnedItems(from: session)
         statusMessage = "Sidebar moved to \(edge.title.lowercased()) edge."
         updateEdgeToggle(for: session, display: display, collapsed: isSidebarCollapsed)
     }
@@ -302,14 +405,16 @@ final class PinSessionManager: ObservableObject, PinManaging {
             count: session.entries.count,
             displayFrame: display.frame,
             edge: session.edge,
-            collapsed: fromCollapsed
+            collapsed: fromCollapsed,
+            width: session.width
         )
 
         let toFrames = stackedFrames(
             count: session.entries.count,
             displayFrame: display.frame,
             edge: session.edge,
-            collapsed: toCollapsed
+            collapsed: toCollapsed,
+            width: session.width
         )
 
         let fromFrames: [CGRect] = session.entries.enumerated().map { index, entry in
@@ -322,8 +427,8 @@ final class PinSessionManager: ObservableObject, PinManaging {
             return .zero
         }
 
-        let fromRegion = regionFrame(for: display.frame, edge: session.edge, collapsed: fromCollapsed)
-        let toRegion = regionFrame(for: display.frame, edge: session.edge, collapsed: toCollapsed)
+        let fromRegion = regionFrame(for: display.frame, edge: session.edge, collapsed: fromCollapsed, width: session.width)
+        let toRegion = regionFrame(for: display.frame, edge: session.edge, collapsed: toCollapsed, width: session.width)
         let start = Date()
 
         sidebarAnimationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
@@ -360,6 +465,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
                 }
 
                 let region = self.interpolateRect(from: fromRegion, to: toRegion, progress: eased)
+                self.resizeHandleController.hide()
                 self.edgeToggleController.show(
                     sidebarRegion: region,
                     edge: liveSession.edge,
@@ -443,12 +549,16 @@ final class PinSessionManager: ObservableObject, PinManaging {
             statusMessage = "Original display is unavailable. Sidebar moved to primary display."
         }
 
+        session.width = clampedSidebarWidth(session.width, displayFrame: display.frame)
+        syncEntryWidths(in: &session)
+
         do {
             try layout(session: &session, on: display, collapsed: isSidebarCollapsed, detectManualMove: detectManualMove)
             activeSession = session
 
             stateMachine.didUpdate(bundleId: session.entries.last?.request.bundleId, pinnedCount: session.entries.count)
             pinStatus = stateMachine.status
+            publishPinnedItems(from: session)
 
             updateEdgeToggle(for: session, display: display, collapsed: isSidebarCollapsed)
 
@@ -487,7 +597,8 @@ final class PinSessionManager: ObservableObject, PinManaging {
             count: session.entries.count,
             displayFrame: display.frame,
             edge: session.edge,
-            collapsed: collapsed
+            collapsed: collapsed,
+            width: session.width
         )
 
         for (index, entry) in session.entries.enumerated() {
@@ -527,7 +638,8 @@ final class PinSessionManager: ObservableObject, PinManaging {
                 count: session.entries.count,
                 displayFrame: display.frame,
                 edge: session.edge,
-                collapsed: collapsed
+                collapsed: collapsed,
+                width: session.width
             )
 
             for (index, entry) in session.entries.enumerated() where index < correctedFrames.count {
@@ -538,7 +650,12 @@ final class PinSessionManager: ObservableObject, PinManaging {
 
     private func handleAutoReveal(session: SidebarSession, display: DisplayDescriptor) {
         let mousePoint = NSEvent.mouseLocation
-        let sidebarRegion = regionFrame(for: display.frame, edge: session.edge, collapsed: isSidebarCollapsed)
+        let sidebarRegion = regionFrame(
+            for: display.frame,
+            edge: session.edge,
+            collapsed: isSidebarCollapsed,
+            width: session.width
+        )
 
         if isSidebarCollapsed {
             if isNearEdge(mousePoint, displayFrame: display.frame, edge: session.edge) {
@@ -633,6 +750,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
 
     private func performAutoPin(from window: RunningWindow, edge: SidebarEdge, displayID: String) {
         isAutoPinInProgress = true
+        let preferredWidth = settingsStore.resolvedConfig(for: window.bundleId, fallbackDisplayId: displayID).preferredWidth
 
         let request = PinRequest(
             source: .runningWindow,
@@ -640,7 +758,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
             edge: edge,
             displayId: displayID,
             windowID: window.windowID,
-            width: nil
+            width: preferredWidth
         )
 
         Task { @MainActor in
@@ -655,13 +773,22 @@ final class PinSessionManager: ObservableObject, PinManaging {
         }
     }
 
-    private func existingOrFreshSession(for request: PinRequest, displayID: String) -> SidebarSession {
+    private func existingOrFreshSession(
+        for request: PinRequest,
+        displayID: String,
+        displayFrame: CGRect
+    ) -> SidebarSession {
+        let requestedWidth = clampedSidebarWidth(
+            request.width ?? PinnedAppConfig.defaultWidth,
+            displayFrame: displayFrame
+        )
+
         guard var session = activeSession else {
-            return SidebarSession(entries: [], edge: request.edge, displayID: displayID)
+            return SidebarSession(entries: [], edge: request.edge, displayID: displayID, width: requestedWidth)
         }
 
         if session.edge != request.edge || session.displayID != displayID {
-            session = SidebarSession(entries: [], edge: request.edge, displayID: displayID)
+            session = SidebarSession(entries: [], edge: request.edge, displayID: displayID, width: requestedWidth)
             isSidebarCollapsed = false
         }
 
@@ -684,13 +811,14 @@ final class PinSessionManager: ObservableObject, PinManaging {
         count: Int,
         displayFrame: CGRect,
         edge: SidebarEdge,
-        collapsed: Bool
+        collapsed: Bool,
+        width: CGFloat
     ) -> [CGRect] {
         guard count > 0 else {
             return []
         }
 
-        let width = targetSidebarWidth(for: displayFrame)
+        let width = clampedSidebarWidth(width, displayFrame: displayFrame)
         let segmentHeight = displayFrame.height / CGFloat(count)
         let visibleX = edge == .left ? displayFrame.minX : displayFrame.maxX - width
         let collapsedX = edge == .left
@@ -722,8 +850,13 @@ final class PinSessionManager: ObservableObject, PinManaging {
         return frames
     }
 
-    private func regionFrame(for displayFrame: CGRect, edge: SidebarEdge, collapsed: Bool) -> CGRect {
-        let width = targetSidebarWidth(for: displayFrame)
+    private func regionFrame(
+        for displayFrame: CGRect,
+        edge: SidebarEdge,
+        collapsed: Bool,
+        width: CGFloat
+    ) -> CGRect {
+        let width = clampedSidebarWidth(width, displayFrame: displayFrame)
         let visibleX = edge == .left ? displayFrame.minX : displayFrame.maxX - width
         let collapsedX = edge == .left
             ? displayFrame.minX - width + hiddenPeekWidth
@@ -762,10 +895,11 @@ final class PinSessionManager: ObservableObject, PinManaging {
         }
     }
 
-    private func targetSidebarWidth(for displayFrame: CGRect) -> CGFloat {
-        let ratioWidth = displayFrame.width * sidebarWidthRatio
-        let maxAllowed = max(220, displayFrame.width * 0.95)
-        return min(max(ratioWidth, PinnedAppConfig.minWidth), maxAllowed)
+    private func clampedSidebarWidth(_ width: CGFloat, displayFrame: CGRect) -> CGFloat {
+        let displayMaximum = max(220, displayFrame.width * 0.95)
+        let upperBound = min(PinnedAppConfig.maxWidth, displayMaximum)
+        let lowerBound = min(PinnedAppConfig.minWidth, upperBound)
+        return min(max(width, lowerBound), upperBound)
     }
 
     private func topWindowCandidateUnderCursor() -> RunningWindow? {
@@ -805,7 +939,12 @@ final class PinSessionManager: ObservableObject, PinManaging {
     }
 
     private func updateEdgeToggle(for session: SidebarSession, display: DisplayDescriptor, collapsed: Bool) {
-        let region = regionFrame(for: display.frame, edge: session.edge, collapsed: collapsed)
+        let region = regionFrame(
+            for: display.frame,
+            edge: session.edge,
+            collapsed: collapsed,
+            width: session.width
+        )
         edgeToggleController.show(
             sidebarRegion: region,
             edge: session.edge,
@@ -819,6 +958,21 @@ final class PinSessionManager: ObservableObject, PinManaging {
                 self.setAutoHoverEnabled(!self.autoHoverEnabled)
             }
         )
+
+        if collapsed {
+            resizeHandleController.hide()
+        } else {
+            resizeHandleController.show(
+                for: region,
+                edge: session.edge,
+                onDeltaX: { [weak self] deltaX in
+                    self?.resizeSidebar(deltaX: deltaX)
+                },
+                onDragEnd: { [weak self] in
+                    self?.finishSidebarResize()
+                }
+            )
+        }
     }
 
     private func interpolateRect(from: CGRect, to: CGRect, progress: Double) -> CGRect {
@@ -838,13 +992,54 @@ final class PinSessionManager: ObservableObject, PinManaging {
             + abs(lhs.height - rhs.height)
     }
 
-    private func persistConfig(for bundleID: String, edge: SidebarEdge, displayID: String) {
+    private func publishPinnedItems(from session: SidebarSession) {
+        pinnedItems = session.entries.enumerated().map { index, entry in
+            PinnedSidebarItem(
+                id: itemID(for: entry.request),
+                bundleId: entry.request.bundleId,
+                windowID: entry.request.windowID,
+                source: entry.request.source,
+                index: index
+            )
+        }
+        sidebarWidth = session.width
+    }
+
+    private func entry(for id: String) -> SidebarEntry? {
+        activeSession?.entries.first { itemID(for: $0.request) == id }
+    }
+
+    private func itemID(for request: PinRequest) -> String {
+        if let windowID = request.windowID {
+            return "window-\(windowID)"
+        }
+        return "bundle-\(request.bundleId)"
+    }
+
+    private func syncEntryWidths(in session: inout SidebarSession) {
+        for index in session.entries.indices {
+            session.entries[index].request.width = session.width
+        }
+    }
+
+    private func persistConfig(for session: SidebarSession) {
+        for entry in session.entries {
+            persistConfig(
+                for: entry.request.bundleId,
+                edge: session.edge,
+                displayID: session.displayID,
+                width: session.width
+            )
+        }
+    }
+
+    private func persistConfig(for bundleID: String, edge: SidebarEdge, displayID: String, width: CGFloat) {
         settingsStore.save(
             config: PinnedAppConfig(
                 bundleId: bundleID,
                 preferredEdge: edge,
                 preferredDisplayId: displayID,
-                preferredWidth: PinnedAppConfig.defaultWidth
+                preferredWidth: PinnedAppConfig.clampedWidth(width)
             )
         )
     }
@@ -854,6 +1049,7 @@ private struct SidebarSession {
     var entries: [SidebarEntry]
     var edge: SidebarEdge
     var displayID: String
+    var width: CGFloat
 }
 
 private struct SidebarEntry {

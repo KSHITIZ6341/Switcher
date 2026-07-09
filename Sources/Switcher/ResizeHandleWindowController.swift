@@ -9,8 +9,8 @@ final class ResizeHandleWindowController {
     func show(
         for pinnedFrame: CGRect,
         edge: SidebarEdge,
-        onDeltaX: @escaping (CGFloat) -> Void,
-        onDragEnd: @escaping () -> Void
+        onDeltaX: @MainActor @escaping (CGFloat) -> Void,
+        onDragEnd: @MainActor @escaping () -> Void
     ) {
         let window = self.window ?? makeWindow()
         self.window = window
@@ -75,8 +75,8 @@ private final class HandleWindow: NSWindow {
 }
 
 private final class HandleView: NSView {
-    var onDeltaX: ((CGFloat) -> Void)?
-    var onDragEnd: (() -> Void)?
+    var onDeltaX: (@MainActor (CGFloat) -> Void)?
+    var onDragEnd: (@MainActor () -> Void)?
 
     private var previousLocation: NSPoint?
 

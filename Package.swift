@@ -3,20 +3,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "SidebarPin",
+    name: "Switcher",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "SidebarPin", targets: ["SidebarPin"])
+        .executable(name: "Switcher", targets: ["Switcher"])
     ],
     targets: [
         .executableTarget(
-            name: "SidebarPin"
+            name: "Switcher"
         ),
         .testTarget(
-            name: "SidebarPinTests",
-            dependencies: ["SidebarPin"]
+            name: "SwitcherTests",
+            dependencies: ["Switcher"]
         )
     ]
 )

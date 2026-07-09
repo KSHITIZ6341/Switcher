@@ -9,6 +9,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var runningWindows: [RunningWindow] = []
     @Published private(set) var displays: [DisplayDescriptor] = []
     @Published private(set) var pinStatus = PinStatus()
+    @Published private(set) var pinnedItems: [PinnedSidebarItem] = []
+    @Published private(set) var activeSidebarWidth = PinnedAppConfig.defaultWidth
 
     @Published var statusMessage: String?
     @Published var errorMessage: String?
@@ -98,6 +100,10 @@ final class AppModel: ObservableObject {
             return "No app selected"
         }
         return displayName(for: composerSelectedBundleID)
+    }
+
+    var sidebarWidthDisplayText: String {
+        "\(Int(activeSidebarWidth.rounded())) px"
     }
 
     func start() {
@@ -255,7 +261,7 @@ final class AppModel: ObservableObject {
             edge: composerSelectedEdge,
             displayId: displayID,
             windowID: selectedWindowID,
-            width: nil
+            width: CGFloat(composerWidth)
         )
 
         do {
@@ -287,6 +293,43 @@ final class AppModel: ObservableObject {
 
     func toggleSidebarVisibility() {
         pinManager.toggleSidebarVisibility()
+    }
+
+    func focusPinnedItem(_ item: PinnedSidebarItem) {
+        pinManager.focusPinnedItem(id: item.id)
+    }
+
+    func unpinPinnedItem(_ item: PinnedSidebarItem) {
+        pinManager.unpinPinnedItem(id: item.id)
+    }
+
+    func movePinnedItem(_ item: PinnedSidebarItem, direction: PinnedMoveDirection) {
+        pinManager.movePinnedItem(id: item.id, direction: direction)
+    }
+
+    func moveSidebar(to edge: SidebarEdge) {
+        do {
+            try pinManager.moveSidebar(to: edge)
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    func displayName(for pinnedItem: PinnedSidebarItem) -> String {
+        if let windowID = pinnedItem.windowID,
+           let window = runningWindows.first(where: { $0.windowID == windowID }) {
+            return window.displayName
+        }
+
+        return displayName(for: pinnedItem.bundleId)
+    }
+
+    func subtitle(for pinnedItem: PinnedSidebarItem) -> String {
+        if pinnedItem.source == .runningWindow {
+            return "Running window"
+        }
+
+        return pinnedItem.bundleId
     }
 
     func setAutoHoverEnabled(_ enabled: Bool) {
@@ -363,6 +406,20 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        pinManager.$pinnedItems
+            .receive(on: RunLoop.main)
+            .sink { [weak self] items in
+                self?.pinnedItems = items
+            }
+            .store(in: &cancellables)
+
+        pinManager.$sidebarWidth
+            .receive(on: RunLoop.main)
+            .sink { [weak self] width in
+                self?.activeSidebarWidth = width
+            }
+            .store(in: &cancellables)
+
     }
 
     private func displayName(for bundleID: String) -> String {
@@ -402,12 +459,16 @@ final class AppModel: ObservableObject {
 
     private func handleHotkey() {
         if pinStatus.isPinned {
-            bringPinnedWindowForward()
+            toggleSidebarVisibility()
+            if isSidebarCollapsed {
+                bringPinnedWindowForward()
+            }
             return
         }
 
         NSApplication.shared.activate(ignoringOtherApps: true)
-        statusMessage = "Hotkey received. Use the menu bar item to pin an app."
+        refreshCatalogAndDisplays()
+        openComposer(for: runningWindows.isEmpty ? .installedApp : .runningWindow)
     }
 
     private func handleBlueButtonTap(_ window: RunningWindow) async {
@@ -476,7 +537,7 @@ final class AppModel: ObservableObject {
             edge: targetEdge,
             displayId: displayID,
             windowID: window.windowID,
-            width: nil
+            width: pinManager.currentSidebarWidth ?? config.preferredWidth
         )
 
         do {

@@ -1,8 +1,10 @@
-# Switcher (SidebarPin for macOS)
+# Switcher for macOS
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Switcher currently builds as `SidebarPin`: a native macOS app that turns regular app windows into a dedicated sidebar so your communication and work context stays visible while you focus.
+Switcher is a native macOS app that turns regular app windows into a dedicated sidebar so your communication and work context stays visible while you focus.
+
+Current version: `v1.1.0`
 
 ## Why this helps productivity
 
@@ -28,16 +30,17 @@ Switcher solves this by keeping key windows attached to a screen edge in a stabl
 - Menu bar utility workflow
 - Pick target from installed apps (`/Applications`, `~/Applications`) or running windows
 - Pin up to **3** apps stacked on one side
-- Sidebar uses full display height and ~25% display width
+- Resizable sidebar width with per-app persistence
+- Pinned-app manager with focus, reorder, unpin, move-left/right, and show/hide controls
 - Choose left/right edge and display
 - Auto-launch selected app if not already running
 - Smooth push-in / pull-out sidebar motion
 - Edge toggle handle on the sidebar boundary
 - Optional automatic open/close by edge hover
 - Optional auto-pin by dragging a window to the screen edge and holding
-- Per-app persistence (edge, display, width defaults)
+- Per-app persistence for edge, display, and width defaults
 - Launch at login toggle
-- Global hotkey: `Control + Option + S`
+- Global hotkey: `Control + Option + S` opens the pin flow when idle and toggles the active sidebar when pinned
 - Blue floating button mode (for selected apps):
   - `Click` to pin/unpin that window
   - `Click and hold` to choose `Place on Left` or `Place on Right`
@@ -46,7 +49,7 @@ Switcher solves this by keeping key windows attached to a screen edge in a stabl
 
 - macOS 14+
 - Swift 6.2+
-- Accessibility permission enabled for SidebarPin
+- Accessibility permission enabled for Switcher
 
 ## Build and run
 
@@ -54,21 +57,21 @@ Switcher solves this by keeping key windows attached to a screen edge in a stabl
 git clone https://github.com/KSHITIZ6341/Switcher.git
 cd Switcher
 swift test
-swift run SidebarPin
+swift run Switcher
 ```
 
 Alternative launch after build:
 
 ```bash
 swift build
-open "$(swift build --show-bin-path)/SidebarPin"
+open "$(swift build --show-bin-path)/Switcher"
 ```
 
 ## First-time setup
 
-1. Launch SidebarPin.
+1. Launch Switcher.
 2. Grant Accessibility permission when prompted.
-3. Open SidebarPin and enable Blue Button Apps (optional).
+3. Open Switcher and choose an installed app or running window.
 4. Pin an app/window to the preferred edge/display.
 
 ## Recommended workflow for communication-heavy work
@@ -82,8 +85,8 @@ open "$(swift build --show-bin-path)/SidebarPin"
 ## Notes and limitations
 
 - True system-level always-on-top for arbitrary third-party windows is not reliably available via public APIs.
-- SidebarPin uses best-effort geometry enforcement and bring-forward behavior.
-- If a pinned window closes, that window is removed from the sidebar session; the SidebarPin app itself stays running.
+- Switcher uses best-effort geometry enforcement and bring-forward behavior.
+- If a pinned window closes, that window is removed from the sidebar session; the Switcher app itself stays running.
 - Launch-at-login uses `SMAppService.mainApp`; unsigned dev binaries may have login-item limitations until packaged/notarized.
 
 ## Open source

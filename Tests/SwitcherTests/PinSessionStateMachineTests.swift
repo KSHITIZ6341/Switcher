@@ -1,5 +1,5 @@
 import XCTest
-@testable import SidebarPin
+@testable import Switcher
 
 final class PinSessionStateMachineTests: XCTestCase {
     func testStateTransitionsStartAndStop() {
