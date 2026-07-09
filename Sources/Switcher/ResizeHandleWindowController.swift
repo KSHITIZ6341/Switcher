@@ -61,10 +61,11 @@ final class ResizeHandleWindowController {
             defer: false
         )
         window.level = .floating
-        window.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.28)
+        window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = false
-        window.collectionBehavior = [.stationary]
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        window.ignoresMouseEvents = false
         return window
     }
 }
@@ -78,14 +79,67 @@ private final class HandleView: NSView {
     var onDeltaX: (@MainActor (CGFloat) -> Void)?
     var onDragEnd: (@MainActor () -> Void)?
 
+    private let idleColor = NSColor.systemBlue.withAlphaComponent(0.08)
+    private let activeColor = NSColor.systemBlue.withAlphaComponent(0.30)
     private var previousLocation: NSPoint?
+    private var trackingArea: NSTrackingArea?
+    private var isHovering = false {
+        didSet {
+            updateAppearance()
+        }
+    }
+    private var isDragging = false {
+        didSet {
+            updateAppearance()
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureAppearance()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureAppearance()
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        self.trackingArea = trackingArea
+    }
 
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .resizeLeftRight)
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+    }
+
     override func mouseDown(with event: NSEvent) {
+        isDragging = true
         previousLocation = convert(event.locationInWindow, from: nil)
     }
 
@@ -99,6 +153,19 @@ private final class HandleView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         previousLocation = nil
+        isDragging = false
         onDragEnd?()
+    }
+
+    private func configureAppearance() {
+        wantsLayer = true
+        layer?.cornerRadius = 3
+        layer?.masksToBounds = true
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        let color = (isHovering || isDragging) ? activeColor : idleColor
+        layer?.backgroundColor = color.cgColor
     }
 }

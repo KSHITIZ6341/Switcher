@@ -26,8 +26,6 @@ final class PinSessionManager: ObservableObject, PinManaging {
     private(set) var lastRequest: PinRequest?
     private let manualBreakTolerance: CGFloat = 24
     private let enforceTolerance: CGFloat = 2
-    private let hiddenPeekWidth: CGFloat = 4
-    private let edgeTriggerDistance: CGFloat = 8
     private let maxStackCount = 3
 
     private let hoverOpenDelay: TimeInterval = 0.15
@@ -59,7 +57,6 @@ final class PinSessionManager: ObservableObject, PinManaging {
         self.windowController = windowController
         self.displayManager = displayManager
         self.settingsStore = settingsStore
-        startMonitorTimerIfNeeded()
     }
 
     func setAutoHoverEnabled(_ enabled: Bool) {
@@ -80,6 +77,8 @@ final class PinSessionManager: ObservableObject, PinManaging {
                 ? "Automatic sidebar mode enabled."
                 : "Automatic sidebar mode disabled."
         }
+
+        updateMonitorTimer()
     }
 
     func startPin(request: PinRequest) async throws {
@@ -122,6 +121,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
         try layout(session: &session, on: display, collapsed: isSidebarCollapsed, detectManualMove: false)
         activeSession = session
         lastRequest = normalizedRequest
+        updateMonitorTimer()
 
         persistConfig(
             for: normalizedRequest.bundleId,
@@ -158,6 +158,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
         pinStatus = stateMachine.status
         pinnedItems = []
         sidebarWidth = PinnedAppConfig.defaultWidth
+        updateMonitorTimer()
     }
 
     func repin() async throws {
@@ -401,7 +402,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
         sidebarAnimationTimer = nil
         isAnimatingSidebarTransition = true
 
-        let fromFallbackFrames = stackedFrames(
+        let fromFallbackFrames = SidebarGeometry.stackedFrames(
             count: session.entries.count,
             displayFrame: display.frame,
             edge: session.edge,
@@ -409,7 +410,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
             width: session.width
         )
 
-        let toFrames = stackedFrames(
+        let toFrames = SidebarGeometry.stackedFrames(
             count: session.entries.count,
             displayFrame: display.frame,
             edge: session.edge,
@@ -427,8 +428,8 @@ final class PinSessionManager: ObservableObject, PinManaging {
             return .zero
         }
 
-        let fromRegion = regionFrame(for: display.frame, edge: session.edge, collapsed: fromCollapsed, width: session.width)
-        let toRegion = regionFrame(for: display.frame, edge: session.edge, collapsed: toCollapsed, width: session.width)
+        let fromRegion = SidebarGeometry.regionFrame(for: display.frame, edge: session.edge, collapsed: fromCollapsed, width: session.width)
+        let toRegion = SidebarGeometry.regionFrame(for: display.frame, edge: session.edge, collapsed: toCollapsed, width: session.width)
         let start = Date()
 
         sidebarAnimationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
@@ -503,6 +504,19 @@ final class PinSessionManager: ObservableObject, PinManaging {
             Task { @MainActor in
                 self?.monitorLoop()
             }
+        }
+    }
+
+    private func stopMonitorTimer() {
+        monitorTimer?.invalidate()
+        monitorTimer = nil
+    }
+
+    private func updateMonitorTimer() {
+        if PinMonitorPolicy.shouldRun(hasActiveSession: activeSession != nil, autoHoverEnabled: autoHoverEnabled) {
+            startMonitorTimerIfNeeded()
+        } else {
+            stopMonitorTimer()
         }
     }
 
@@ -593,7 +607,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
         detectManualMove: Bool
     ) throws {
         var closedIndices: [Int] = []
-        let expectedFrames = stackedFrames(
+        let expectedFrames = SidebarGeometry.stackedFrames(
             count: session.entries.count,
             displayFrame: display.frame,
             edge: session.edge,
@@ -614,13 +628,12 @@ final class PinSessionManager: ObservableObject, PinManaging {
             }
 
             if detectManualMove {
-                let positionDelta = abs(actual.origin.x - expected.origin.x) + abs(actual.origin.y - expected.origin.y)
-                if positionDelta > manualBreakTolerance {
+                if SidebarGeometry.hasManualFrameBreak(actual: actual, expected: expected, tolerance: manualBreakTolerance) {
                     throw PinError.generic(StopReason.manualWindowMoveOrResize.message)
                 }
             }
 
-            if frameDistance(actual, expected) > enforceTolerance {
+            if SidebarGeometry.frameDistance(actual, expected) > enforceTolerance {
                 try windowController.setFrame(expected, for: entry.window)
             }
         }
@@ -634,7 +647,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
                 throw PinError.generic(StopReason.targetWindowClosed.message)
             }
 
-            let correctedFrames = stackedFrames(
+            let correctedFrames = SidebarGeometry.stackedFrames(
                 count: session.entries.count,
                 displayFrame: display.frame,
                 edge: session.edge,
@@ -650,7 +663,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
 
     private func handleAutoReveal(session: SidebarSession, display: DisplayDescriptor) {
         let mousePoint = NSEvent.mouseLocation
-        let sidebarRegion = regionFrame(
+        let sidebarRegion = SidebarGeometry.regionFrame(
             for: display.frame,
             edge: session.edge,
             collapsed: isSidebarCollapsed,
@@ -658,7 +671,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
         )
 
         if isSidebarCollapsed {
-            if isNearEdge(mousePoint, displayFrame: display.frame, edge: session.edge) {
+            if SidebarGeometry.isNearEdge(mousePoint, displayFrame: display.frame, edge: session.edge) {
                 if edgeHoverStartedAt == nil {
                     edgeHoverStartedAt = Date()
                 }
@@ -709,13 +722,13 @@ final class PinSessionManager: ObservableObject, PinManaging {
             return
         }
 
-        let edge = edgeNear(point: mousePoint, displayFrame: display.frame)
+        let edge = SidebarGeometry.edgeNear(point: mousePoint, displayFrame: display.frame)
         guard let edge else {
             dragCandidate = nil
             return
         }
 
-        guard let window = topWindowCandidateUnderCursor() else {
+        guard let window = topWindowCandidateUnderCursor(at: mousePoint) else {
             dragCandidate = nil
             return
         }
@@ -807,105 +820,16 @@ final class PinSessionManager: ObservableObject, PinManaging {
         }
     }
 
-    private func stackedFrames(
-        count: Int,
-        displayFrame: CGRect,
-        edge: SidebarEdge,
-        collapsed: Bool,
-        width: CGFloat
-    ) -> [CGRect] {
-        guard count > 0 else {
-            return []
-        }
-
-        let width = clampedSidebarWidth(width, displayFrame: displayFrame)
-        let segmentHeight = displayFrame.height / CGFloat(count)
-        let visibleX = edge == .left ? displayFrame.minX : displayFrame.maxX - width
-        let collapsedX = edge == .left
-            ? displayFrame.minX - width + hiddenPeekWidth
-            : displayFrame.maxX - hiddenPeekWidth
-
-        var frames: [CGRect] = []
-        frames.reserveCapacity(count)
-
-        for index in 0..<count {
-            let top = displayFrame.maxY - (CGFloat(index) * segmentHeight)
-            let bottom: CGFloat
-            if index == count - 1 {
-                bottom = displayFrame.minY
-            } else {
-                bottom = displayFrame.maxY - (CGFloat(index + 1) * segmentHeight)
-            }
-
-            frames.append(
-                CGRect(
-                    x: (collapsed ? collapsedX : visibleX).rounded(.toNearestOrAwayFromZero),
-                    y: bottom.rounded(.toNearestOrAwayFromZero),
-                    width: width.rounded(.toNearestOrAwayFromZero),
-                    height: (top - bottom).rounded(.toNearestOrAwayFromZero)
-                )
-            )
-        }
-
-        return frames
-    }
-
-    private func regionFrame(
-        for displayFrame: CGRect,
-        edge: SidebarEdge,
-        collapsed: Bool,
-        width: CGFloat
-    ) -> CGRect {
-        let width = clampedSidebarWidth(width, displayFrame: displayFrame)
-        let visibleX = edge == .left ? displayFrame.minX : displayFrame.maxX - width
-        let collapsedX = edge == .left
-            ? displayFrame.minX - width + hiddenPeekWidth
-            : displayFrame.maxX - hiddenPeekWidth
-
-        return CGRect(
-            x: collapsed ? collapsedX : visibleX,
-            y: displayFrame.minY,
-            width: width,
-            height: displayFrame.height
-        )
-    }
-
-    private func edgeNear(point: CGPoint, displayFrame: CGRect) -> SidebarEdge? {
-        if abs(point.x - displayFrame.minX) <= edgeTriggerDistance {
-            return .left
-        }
-
-        if abs(point.x - displayFrame.maxX) <= edgeTriggerDistance {
-            return .right
-        }
-
-        return nil
-    }
-
-    private func isNearEdge(_ point: CGPoint, displayFrame: CGRect, edge: SidebarEdge) -> Bool {
-        guard point.y >= displayFrame.minY, point.y <= displayFrame.maxY else {
-            return false
-        }
-
-        switch edge {
-        case .left:
-            return abs(point.x - displayFrame.minX) <= edgeTriggerDistance
-        case .right:
-            return abs(point.x - displayFrame.maxX) <= edgeTriggerDistance
-        }
-    }
-
     private func clampedSidebarWidth(_ width: CGFloat, displayFrame: CGRect) -> CGFloat {
-        let displayMaximum = max(220, displayFrame.width * 0.95)
-        let upperBound = min(PinnedAppConfig.maxWidth, displayMaximum)
-        let lowerBound = min(PinnedAppConfig.minWidth, upperBound)
-        return min(max(width, lowerBound), upperBound)
+        SidebarGeometry.clampedSidebarWidth(width, displayFrame: displayFrame)
     }
 
-    private func topWindowCandidateUnderCursor() -> RunningWindow? {
+    private func topWindowCandidateUnderCursor(at mousePoint: CGPoint) -> RunningWindow? {
         guard let raw = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
+
+        let screenFrames = NSScreen.screens.map(\.frame)
 
         for entry in raw {
             guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0 else {
@@ -920,6 +844,21 @@ final class PinSessionManager: ObservableObject, PinManaging {
             }
 
             if bundleID == Bundle.main.bundleIdentifier {
+                continue
+            }
+
+            let alpha = (entry[kCGWindowAlpha as String] as? Double) ?? 1
+            guard alpha > 0.01 else {
+                continue
+            }
+
+            guard let boundsDictionary = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let quartzBounds = CGRect(dictionaryRepresentation: boundsDictionary),
+                  SidebarGeometry.appKitFrameContainsCursor(
+                      quartzBounds: quartzBounds,
+                      cursor: mousePoint,
+                      screenFrames: screenFrames
+                  ) else {
                 continue
             }
 
@@ -939,7 +878,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
     }
 
     private func updateEdgeToggle(for session: SidebarSession, display: DisplayDescriptor, collapsed: Bool) {
-        let region = regionFrame(
+        let region = SidebarGeometry.regionFrame(
             for: display.frame,
             edge: session.edge,
             collapsed: collapsed,
@@ -983,13 +922,6 @@ final class PinSessionManager: ObservableObject, PinManaging {
             width: from.width + (to.width - from.width) * t,
             height: from.height + (to.height - from.height) * t
         )
-    }
-
-    private func frameDistance(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        abs(lhs.origin.x - rhs.origin.x)
-            + abs(lhs.origin.y - rhs.origin.y)
-            + abs(lhs.width - rhs.width)
-            + abs(lhs.height - rhs.height)
     }
 
     private func publishPinnedItems(from session: SidebarSession) {

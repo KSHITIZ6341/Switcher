@@ -28,7 +28,7 @@ Switcher solves this by keeping key windows attached to a screen edge in a stabl
 
 - Native macOS app (`SwiftUI + AppKit + Accessibility APIs`)
 - Menu bar utility workflow
-- Pick target from installed apps (`/Applications`, `~/Applications`) or running windows
+- Pick target from installed apps (`/Applications`, `/System/Applications`, `~/Applications`) or running windows
 - Pin up to **3** apps stacked on one side
 - Resizable sidebar width with per-app persistence
 - Pinned-app manager with focus, reorder, unpin, move-left/right, and show/hide controls
@@ -49,6 +49,7 @@ Switcher solves this by keeping key windows attached to a screen edge in a stabl
 
 - macOS 14+
 - Swift 6.2+
+- Full Xcode with XCTest support for running tests
 - Accessibility permission enabled for Switcher
 
 ## Build and run
@@ -60,12 +61,27 @@ swift test
 swift run Switcher
 ```
 
+`swift test` requires a full Xcode toolchain, not just Command Line Tools. Check the active toolchain with:
+
+```bash
+xcode-select -p
+xcodebuild -version
+```
+
+If tests fail with `no such module 'XCTest'` or `unable to find utility "xctest"`, install Xcode and select it:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
 Alternative launch after build:
 
 ```bash
 swift build
 open "$(swift build --show-bin-path)/Switcher"
 ```
+
+For distributable `.app` builds, signing, notarization, and release checklist details, see [RELEASING.md](RELEASING.md).
 
 ## First-time setup
 

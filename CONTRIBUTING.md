@@ -5,14 +5,29 @@ Thanks for helping improve Switcher. This project is a native macOS Swift app, s
 ## Development setup
 
 1. Fork and clone the repository.
-2. Install Xcode with Swift 6.2 or newer.
-3. Run the test suite:
+2. Install full Xcode with Swift 6.2 or newer. Command Line Tools alone can build the executable, but `swift test` needs Xcode's XCTest support.
+3. Verify the selected toolchain:
+
+   ```bash
+   xcode-select -p
+   xcodebuild -version
+   ```
+
+   If `xcode-select -p` points at `/Library/Developer/CommandLineTools`, select Xcode before running tests:
+
+   ```bash
+   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+   ```
+
+4. Run the test suite:
 
    ```bash
    swift test
    ```
 
-4. Run the app locally:
+   `no such module 'XCTest'` or `unable to find utility "xctest"` means the active toolchain does not provide XCTest.
+
+5. Run the app locally:
 
    ```bash
    swift run Switcher

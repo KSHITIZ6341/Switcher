@@ -6,17 +6,52 @@ final class AppCatalog: ObservableObject {
     @Published private(set) var installedApps: [InstalledApp] = []
     @Published private(set) var runningWindows: [RunningWindow] = []
 
+    nonisolated static let minimumUsefulWindowSize = CGSize(width: 220, height: 120)
+    nonisolated static let minimumUsefulWindowAlpha = 0.01
+
     func refresh() {
         installedApps = fetchInstalledApps()
         runningWindows = fetchRunningWindows()
     }
 
-    private func fetchInstalledApps() -> [InstalledApp] {
-        let fileManager = FileManager.default
-        let roots: [URL] = [
+    nonisolated static func installedApplicationSearchRoots(fileManager: FileManager = .default) -> [URL] {
+        [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
+            URL(fileURLWithPath: "/System/Applications", isDirectory: true),
             fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
         ]
+    }
+
+    nonisolated static func isRunningWindowPickerCandidate(
+        entry: [String: Any],
+        bundleID: String,
+        mainBundleID: String? = Bundle.main.bundleIdentifier
+    ) -> Bool {
+        guard bundleID != mainBundleID else {
+            return false
+        }
+
+        guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0 else {
+            return false
+        }
+
+        let alpha = (entry[kCGWindowAlpha as String] as? Double) ?? 1
+        guard alpha > minimumUsefulWindowAlpha else {
+            return false
+        }
+
+        guard let boundsDictionary = entry[kCGWindowBounds as String] as? NSDictionary,
+              let bounds = CGRect(dictionaryRepresentation: boundsDictionary) else {
+            return false
+        }
+
+        return bounds.width >= minimumUsefulWindowSize.width
+            && bounds.height >= minimumUsefulWindowSize.height
+    }
+
+    private func fetchInstalledApps() -> [InstalledApp] {
+        let fileManager = FileManager.default
+        let roots = Self.installedApplicationSearchRoots(fileManager: fileManager)
 
         var appsByBundleID: [String: InstalledApp] = [:]
 
@@ -66,10 +101,6 @@ final class AppCatalog: ObservableObject {
         var windows: [RunningWindow] = []
 
         for entry in raw {
-            guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0 else {
-                continue
-            }
-
             guard let windowNumber = entry[kCGWindowNumber as String] as? UInt32 else {
                 continue
             }
@@ -77,6 +108,10 @@ final class AppCatalog: ObservableObject {
             guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
                   let runningApp = NSRunningApplication(processIdentifier: pid),
                   let bundleID = runningApp.bundleIdentifier else {
+                continue
+            }
+
+            guard Self.isRunningWindowPickerCandidate(entry: entry, bundleID: bundleID) else {
                 continue
             }
 

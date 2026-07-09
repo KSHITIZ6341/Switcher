@@ -40,6 +40,8 @@ final class AppModel: ObservableObject {
     private var iconCache: [String: NSImage] = [:]
 
     private var cancellables = Set<AnyCancellable>()
+    private var permissionRecheckTimer: Timer?
+    private var permissionRecheckAttempts = 0
     private var didStart = false
 
     init(
@@ -128,7 +130,12 @@ final class AppModel: ObservableObject {
                 self?.handleHotkey()
             }
         }
-        HotkeyManager.shared.registerDefaultHotKey()
+
+        do {
+            try HotkeyManager.shared.registerDefaultHotKey()
+        } catch {
+            setError(error)
+        }
     }
 
     func refreshCatalogAndDisplays() {
@@ -146,11 +153,18 @@ final class AppModel: ObservableObject {
 
     func refreshPermissionState() {
         permissionGranted = permissionManager.isAccessibilityGranted()
+        if permissionGranted {
+            stopPermissionRecheckLoop()
+            if errorMessage == PinError.permissionDenied.errorDescription {
+                errorMessage = nil
+            }
+        }
     }
 
     func requestAccessibilityPermission() {
         permissionManager.requestAccessibilityPermission()
         refreshPermissionState()
+        beginPermissionRecheckLoop()
     }
 
     func openComposer(for source: AppSelectionSource) {
@@ -266,20 +280,20 @@ final class AppModel: ObservableObject {
 
         do {
             try await pinManager.startPin(request: request)
-            statusMessage = "Pinned \(selectedComposerAppDisplayName)."
+            setSuccessStatus("Pinned \(selectedComposerAppDisplayName).")
             isComposerPresented = false
             refreshCatalogAndDisplays()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            setError(error)
         }
     }
 
     func repin() async {
         do {
             try await pinManager.repin()
-            statusMessage = "Repin applied."
+            setSuccessStatus("Repin applied.")
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            setError(error)
         }
     }
 
@@ -311,7 +325,7 @@ final class AppModel: ObservableObject {
         do {
             try pinManager.moveSidebar(to: edge)
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            setError(error)
         }
     }
 
@@ -335,9 +349,9 @@ final class AppModel: ObservableObject {
     func setAutoHoverEnabled(_ enabled: Bool) {
         autoHoverEnabled = enabled
         pinManager.setAutoHoverEnabled(enabled)
-        statusMessage = enabled
+        setSuccessStatus(enabled
             ? "Automatic sidebar mode enabled."
-            : "Automatic sidebar mode disabled."
+            : "Automatic sidebar mode disabled.")
     }
 
     func isBlueButtonEnabled(for bundleID: String) -> Bool {
@@ -353,6 +367,7 @@ final class AppModel: ObservableObject {
 
         settingsStore.blueButtonBundleIDs = blueButtonEnabledBundleIDs
         blueButtonManager.setEnabledBundleIDs(blueButtonEnabledBundleIDs)
+        errorMessage = nil
     }
 
     func setLaunchAtLogin(enabled: Bool) {
@@ -360,7 +375,7 @@ final class AppModel: ObservableObject {
             try launchAtLoginManager.setEnabled(enabled)
             settingsStore.launchAtLoginEnabled = enabled
             launchAtLoginEnabled = enabled
-            statusMessage = enabled ? "Launch at login enabled." : "Launch at login disabled."
+            setSuccessStatus(enabled ? "Launch at login enabled." : "Launch at login disabled.")
         } catch {
             launchAtLoginEnabled = settingsStore.launchAtLoginEnabled
             errorMessage = "Failed to update launch-at-login: \(error.localizedDescription)"
@@ -377,7 +392,7 @@ final class AppModel: ObservableObject {
             .sink { [weak self] status in
                 self?.pinStatus = status
                 if let reason = status.reason {
-                    self?.statusMessage = reason.message
+                    self?.setStatusMessage(reason.message, clearsError: reason == .userUnpinned)
                 }
             }
             .store(in: &cancellables)
@@ -388,7 +403,7 @@ final class AppModel: ObservableObject {
                 guard let message else {
                     return
                 }
-                self?.statusMessage = message
+                self?.setStatusMessage(message, clearsError: self?.shouldClearError(forPinManagerStatus: message) ?? false)
             }
             .store(in: &cancellables)
 
@@ -420,6 +435,46 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshPermissionState()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func beginPermissionRecheckLoop() {
+        stopPermissionRecheckLoop()
+
+        guard !permissionGranted else {
+            return
+        }
+
+        permissionRecheckAttempts = 0
+        permissionRecheckTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else {
+                    return
+                }
+
+                self.permissionRecheckAttempts += 1
+                self.refreshPermissionState()
+
+                if self.permissionGranted || self.permissionRecheckAttempts >= 30 {
+                    self.stopPermissionRecheckLoop()
+                }
+            }
+        }
+
+        if let permissionRecheckTimer {
+            RunLoop.main.add(permissionRecheckTimer, forMode: .common)
+        }
+    }
+
+    private func stopPermissionRecheckLoop() {
+        permissionRecheckTimer?.invalidate()
+        permissionRecheckTimer = nil
+        permissionRecheckAttempts = 0
     }
 
     private func displayName(for bundleID: String) -> String {
@@ -459,8 +514,9 @@ final class AppModel: ObservableObject {
 
     private func handleHotkey() {
         if pinStatus.isPinned {
+            let wasSidebarCollapsed = isSidebarCollapsed
             toggleSidebarVisibility()
-            if isSidebarCollapsed {
+            if wasSidebarCollapsed {
                 bringPinnedWindowForward()
             }
             return
@@ -482,7 +538,7 @@ final class AppModel: ObservableObject {
 
         if pinManager.containsPinnedWindow(windowID: window.windowID, bundleID: window.bundleId) {
             pinManager.unpinWindow(windowID: window.windowID, bundleID: window.bundleId)
-            statusMessage = "Unpinned \(window.appName) from sidebar."
+            setSuccessStatus("Unpinned \(window.appName) from sidebar.")
             return
         }
 
@@ -501,9 +557,9 @@ final class AppModel: ObservableObject {
         if pinManager.containsPinnedWindow(windowID: window.windowID, bundleID: window.bundleId) {
             do {
                 try pinManager.moveSidebar(to: edge)
-                statusMessage = "Moved sidebar to \(edge.title.lowercased()) edge."
+                setSuccessStatus("Moved sidebar to \(edge.title.lowercased()) edge.")
             } catch {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                setError(error)
             }
             return
         }
@@ -521,7 +577,7 @@ final class AppModel: ObservableObject {
             do {
                 try pinManager.moveSidebar(to: targetEdge)
             } catch {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                setError(error)
                 return
             }
         }
@@ -542,9 +598,35 @@ final class AppModel: ObservableObject {
 
         do {
             try await pinManager.startPin(request: request)
-            statusMessage = "Pinned \(window.appName) from blue button."
+            setSuccessStatus("Pinned \(window.appName) from blue button.")
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            setError(error)
         }
+    }
+
+    private func setSuccessStatus(_ message: String) {
+        setStatusMessage(message, clearsError: true)
+    }
+
+    private func setStatusMessage(_ message: String, clearsError: Bool) {
+        statusMessage = message
+        if clearsError {
+            errorMessage = nil
+        }
+    }
+
+    private func setError(_ error: Error) {
+        errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    private func shouldClearError(forPinManagerStatus message: String) -> Bool {
+        message.hasPrefix("Pinned ")
+            || message.hasPrefix("Auto-pinned ")
+            || message.hasPrefix("Sidebar moved to ")
+            || message.hasPrefix("Sidebar width set to ")
+            || message.hasPrefix("Unpinned one app.")
+            || message == "Updated pinned app order."
+            || message == "Automatic sidebar mode enabled."
+            || message == "Automatic sidebar mode disabled."
     }
 }

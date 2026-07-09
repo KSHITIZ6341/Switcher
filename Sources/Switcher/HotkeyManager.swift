@@ -5,6 +5,20 @@ import Foundation
 final class HotkeyManager {
     static let shared = HotkeyManager()
 
+    enum RegistrationError: LocalizedError {
+        case installHandlerFailed(OSStatus)
+        case registerHotKeyFailed(OSStatus)
+
+        var errorDescription: String? {
+            switch self {
+            case .installHandlerFailed(let status):
+                return "Failed to install the keyboard shortcut handler (Carbon status \(status))."
+            case .registerHotKeyFailed(let status):
+                return "Failed to register Control-Option-S as the global shortcut (Carbon status \(status))."
+            }
+        }
+    }
+
     var onHotKeyPressed: (() -> Void)?
 
     private var hotKeyRef: EventHotKeyRef?
@@ -14,7 +28,7 @@ final class HotkeyManager {
 
     private init() {}
 
-    func registerDefaultHotKey() {
+    func registerDefaultHotKey() throws {
         unregister()
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -48,11 +62,19 @@ final class HotkeyManager {
         }
 
         let userData = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-        InstallEventHandler(GetEventDispatcherTarget(), callback, 1, &eventType, userData, &eventHandlerRef)
+        let installStatus = InstallEventHandler(GetEventDispatcherTarget(), callback, 1, &eventType, userData, &eventHandlerRef)
+        guard installStatus == noErr else {
+            unregister()
+            throw RegistrationError.installHandlerFailed(installStatus)
+        }
 
         let hotKeyID = EventHotKeyID(signature: signature, id: hotKeyIDValue)
         let modifiers = UInt32(controlKey) | UInt32(optionKey)
-        RegisterEventHotKey(UInt32(kVK_ANSI_S), modifiers, hotKeyID, GetEventDispatcherTarget(), 0, &hotKeyRef)
+        let registerStatus = RegisterEventHotKey(UInt32(kVK_ANSI_S), modifiers, hotKeyID, GetEventDispatcherTarget(), 0, &hotKeyRef)
+        guard registerStatus == noErr else {
+            unregister()
+            throw RegistrationError.registerHotKeyFailed(registerStatus)
+        }
     }
 
     func unregister() {
