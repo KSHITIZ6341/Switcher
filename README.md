@@ -1,6 +1,8 @@
-# SidebarPin (macOS)
+# Switcher (SidebarPin for macOS)
 
-SidebarPin turns regular app windows into a dedicated sidebar so your communication and work context stays visible while you focus.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Switcher currently builds as `SidebarPin`: a native macOS app that turns regular app windows into a dedicated sidebar so your communication and work context stays visible while you focus.
 
 ## Why this helps productivity
 
@@ -10,7 +12,7 @@ Most productivity loss comes from context switching:
 - Important messages disappear behind full-size windows.
 - You lose time reopening, resizing, and rearranging apps.
 
-SidebarPin solves this by keeping key windows attached to a screen edge in a stable layout. You keep a persistent "communication lane" while continuing deep work in the rest of the screen.
+Switcher solves this by keeping key windows attached to a screen edge in a stable layout. You keep a persistent "communication lane" while continuing deep work in the rest of the screen.
 
 ## How this helps you stay on top of communication and work
 
@@ -37,18 +39,20 @@ SidebarPin solves this by keeping key windows attached to a screen edge in a sta
 - Launch at login toggle
 - Global hotkey: `Control + Option + S`
 - Blue floating button mode (for selected apps):
-- `Click` to pin/unpin that window
-- `Click and hold` to choose `Place on Left` or `Place on Right`
+  - `Click` to pin/unpin that window
+  - `Click and hold` to choose `Place on Left` or `Place on Right`
 
 ## Requirements
 
 - macOS 14+
+- Swift 6.2+
 - Accessibility permission enabled for SidebarPin
 
 ## Build and run
 
 ```bash
-cd /Volumes/KshitizLinux/rework
+git clone https://github.com/KSHITIZ6341/Switcher.git
+cd Switcher
 swift test
 swift run SidebarPin
 ```
@@ -56,7 +60,8 @@ swift run SidebarPin
 Alternative launch after build:
 
 ```bash
-open /Volumes/KshitizLinux/rework/.build/arm64-apple-macosx/debug/SidebarPin
+swift build
+open "$(swift build --show-bin-path)/SidebarPin"
 ```
 
 ## First-time setup
@@ -80,3 +85,9 @@ open /Volumes/KshitizLinux/rework/.build/arm64-apple-macosx/debug/SidebarPin
 - SidebarPin uses best-effort geometry enforcement and bring-forward behavior.
 - If a pinned window closes, that window is removed from the sidebar session; the SidebarPin app itself stays running.
 - Launch-at-login uses `SMAppService.mainApp`; unsigned dev binaries may have login-item limitations until packaged/notarized.
+
+## Open source
+
+Switcher is open source under the [MIT License](LICENSE).
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, follow the [Code of Conduct](CODE_OF_CONDUCT.md), and report security issues through the process in [SECURITY.md](SECURITY.md).
