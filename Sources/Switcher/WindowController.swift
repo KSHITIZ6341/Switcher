@@ -11,7 +11,15 @@ struct ManagedWindow {
 }
 
 @MainActor
-final class WindowController {
+protocol WindowControlling: AnyObject {
+    func resolveWindow(bundleId: String, preferredWindowID: CGWindowID?) async throws -> ManagedWindow
+    func frame(of window: ManagedWindow) throws -> CGRect
+    func setFrame(_ frame: CGRect, for window: ManagedWindow) throws
+    func bringToFront(_ window: ManagedWindow)
+}
+
+@MainActor
+final class WindowController: WindowControlling {
     private let permissionManager: PermissionManaging
 
     init(permissionManager: PermissionManaging) {

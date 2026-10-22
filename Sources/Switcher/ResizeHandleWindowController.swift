@@ -1,7 +1,18 @@
 import AppKit
 
 @MainActor
-final class ResizeHandleWindowController {
+protocol ResizeHandleControlling: AnyObject {
+    func show(
+        for pinnedFrame: CGRect,
+        edge: SidebarEdge,
+        onDeltaX: @MainActor @escaping (CGFloat) -> Void,
+        onDragEnd: @MainActor @escaping () -> Void
+    )
+    func hide()
+}
+
+@MainActor
+final class ResizeHandleWindowController: ResizeHandleControlling {
     private let handleWidth: CGFloat = 6
     private var window: NSWindow?
     private var handleView: HandleView?

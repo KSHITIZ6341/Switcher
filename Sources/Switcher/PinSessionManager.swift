@@ -12,11 +12,12 @@ final class PinSessionManager: ObservableObject, PinManaging {
     @Published private(set) var sidebarWidth = PinnedAppConfig.defaultWidth
 
     private let permissionManager: PermissionManaging
-    private let windowController: WindowController
-    private let displayManager: DisplayManager
+    private let windowController: WindowControlling
+    private let displayManager: DisplayProviding
     private let settingsStore: SettingsStore
-    private let edgeToggleController = SidebarEdgeToggleWindowController()
-    private let resizeHandleController = ResizeHandleWindowController()
+    private let edgeToggleController: SidebarEdgeToggleControlling
+    private let resizeHandleController: ResizeHandleControlling
+    private let monitorInterval: TimeInterval?
 
     private var stateMachine = PinSessionStateMachine()
     private var monitorTimer: Timer?
@@ -49,14 +50,20 @@ final class PinSessionManager: ObservableObject, PinManaging {
 
     init(
         permissionManager: PermissionManaging,
-        windowController: WindowController,
-        displayManager: DisplayManager,
-        settingsStore: SettingsStore
+        windowController: WindowControlling,
+        displayManager: DisplayProviding,
+        settingsStore: SettingsStore,
+        edgeToggleController: SidebarEdgeToggleControlling = SidebarEdgeToggleWindowController(),
+        resizeHandleController: ResizeHandleControlling = ResizeHandleWindowController(),
+        monitorInterval: TimeInterval? = 0.05
     ) {
         self.permissionManager = permissionManager
         self.windowController = windowController
         self.displayManager = displayManager
         self.settingsStore = settingsStore
+        self.edgeToggleController = edgeToggleController
+        self.resizeHandleController = resizeHandleController
+        self.monitorInterval = monitorInterval
     }
 
     func setAutoHoverEnabled(_ enabled: Bool) {
@@ -496,11 +503,11 @@ final class PinSessionManager: ObservableObject, PinManaging {
     }
 
     private func startMonitorTimerIfNeeded() {
-        guard monitorTimer == nil else {
+        guard monitorTimer == nil, let monitorInterval else {
             return
         }
 
-        monitorTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        monitorTimer = Timer.scheduledTimer(withTimeInterval: monitorInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.monitorLoop()
             }
@@ -520,7 +527,7 @@ final class PinSessionManager: ObservableObject, PinManaging {
         }
     }
 
-    private func monitorLoop() {
+    func monitorLoop() {
         if autoHoverEnabled {
             monitorDragCapture()
         } else {
