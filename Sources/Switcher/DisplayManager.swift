@@ -1,7 +1,14 @@
 import AppKit
 
 @MainActor
-final class DisplayManager {
+protocol DisplayProviding: AnyObject {
+    func allDisplays() -> [DisplayDescriptor]
+    func display(withID id: String) -> DisplayDescriptor?
+    func primaryDisplay() -> DisplayDescriptor?
+}
+
+@MainActor
+final class DisplayManager: DisplayProviding {
     func allDisplays() -> [DisplayDescriptor] {
         NSScreen.screens.enumerated().map { index, screen in
             DisplayDescriptor(

@@ -2,7 +2,20 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class SidebarEdgeToggleWindowController {
+protocol SidebarEdgeToggleControlling: AnyObject {
+    func show(
+        sidebarRegion: CGRect,
+        edge: SidebarEdge,
+        collapsed: Bool,
+        autoModeEnabled: Bool,
+        onToggle: @escaping () -> Void,
+        onToggleAutoMode: @escaping () -> Void
+    )
+    func hide()
+}
+
+@MainActor
+final class SidebarEdgeToggleWindowController: SidebarEdgeToggleControlling {
     private let controlSize = CGSize(width: 28, height: 92)
     private var window: NSWindow?
     private var hostingView: NSHostingView<SidebarEdgeToggleView>?
