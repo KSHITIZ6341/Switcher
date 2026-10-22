@@ -70,7 +70,7 @@ final class AppCatalogTests: XCTestCase {
         [
             kCGWindowLayer as String: 0,
             kCGWindowAlpha as String: alpha,
-            kCGWindowBounds as String: CGRect(x: 10, y: 20, width: width, height: height).dictionaryRepresentation! as NSDictionary
+            kCGWindowBounds as String: CGRect(x: 10, y: 20, width: width, height: height).dictionaryRepresentation as NSDictionary
         ]
     }
 }

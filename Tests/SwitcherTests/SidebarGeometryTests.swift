@@ -83,4 +83,78 @@ final class SidebarGeometryTests: XCTestCase {
             )
         )
     }
+
+    func testConversionAndHitTestingForDisplayAbovePrimary() {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1000, height: 800),
+            CGRect(x: 0, y: 800, width: 1000, height: 600)
+        ]
+        let quartzBounds = CGRect(x: 100, y: -500, width: 300, height: 200)
+
+        XCTAssertEqual(
+            SidebarGeometry.convertQuartzBoundsToAppKit(quartzBounds, screenFrames: screens),
+            CGRect(x: 100, y: 1100, width: 300, height: 200)
+        )
+        XCTAssertTrue(SidebarGeometry.appKitFrameContainsCursor(
+            quartzBounds: quartzBounds,
+            cursor: CGPoint(x: 150, y: 1150),
+            screenFrames: screens
+        ))
+    }
+
+    func testTallerSecondaryDisplayDoesNotShiftPrimaryCoordinateOrigin() {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1000, height: 800),
+            CGRect(x: 1000, y: 0, width: 800, height: 1200)
+        ]
+
+        XCTAssertEqual(
+            SidebarGeometry.convertQuartzBoundsToAppKit(
+                CGRect(x: 1100, y: -100, width: 300, height: 200),
+                screenFrames: screens
+            ),
+            CGRect(x: 1100, y: 700, width: 300, height: 200)
+        )
+    }
+
+    func testAppKitSidebarStackMapsToTopToBottomAccessibilityCoordinates() {
+        let display = CGRect(x: 0, y: 0, width: 1000, height: 900)
+        let frames = SidebarGeometry.stackedFrames(
+            count: 3, displayFrame: display, edge: .right, collapsed: false, width: 300
+        )
+
+        XCTAssertEqual(frames.map {
+            SidebarGeometry.convertAppKitBoundsToQuartz($0, screenFrames: [display])
+        }, [
+            CGRect(x: 700, y: 0, width: 300, height: 300),
+            CGRect(x: 700, y: 300, width: 300, height: 300),
+            CGRect(x: 700, y: 600, width: 300, height: 300)
+        ])
+    }
+
+    func testCoordinateRoundTripForDisplaysAboveBelowAndLeft() {
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1000, height: 800),
+            CGRect(x: 0, y: 800, width: 1000, height: 600),
+            CGRect(x: -800, y: 0, width: 800, height: 900),
+            CGRect(x: 0, y: -600, width: 800, height: 600)
+        ]
+        let appKitFrames = [
+            CGRect(x: 100, y: 1100, width: 300, height: 200),
+            CGRect(x: -700, y: 100, width: 300, height: 200),
+            CGRect(x: 100, y: -500, width: 300, height: 200)
+        ]
+        let quartzFrames = [
+            CGRect(x: 100, y: -500, width: 300, height: 200),
+            CGRect(x: -700, y: 500, width: 300, height: 200),
+            CGRect(x: 100, y: 1100, width: 300, height: 200)
+        ]
+
+        for (appKit, quartz) in zip(appKitFrames, quartzFrames) {
+            XCTAssertEqual(SidebarGeometry.convertAppKitBoundsToQuartz(appKit, screenFrames: screens), quartz)
+            XCTAssertEqual(SidebarGeometry.convertQuartzBoundsToAppKit(quartz, screenFrames: screens), appKit)
+        }
+        XCTAssertEqual(SidebarGeometry.convertQuartzBoundsToAppKit(appKitFrames[0], screenFrames: []), appKitFrames[0])
+        XCTAssertEqual(SidebarGeometry.convertAppKitBoundsToQuartz(appKitFrames[0], screenFrames: []), appKitFrames[0])
+    }
 }
