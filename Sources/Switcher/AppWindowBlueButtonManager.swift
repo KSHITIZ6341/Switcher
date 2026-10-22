@@ -143,7 +143,10 @@ final class AppWindowBlueButtonManager {
                 continue
             }
 
-            let appKitFrame = convertQuartzBoundsToAppKit(cgWindowBounds)
+            let appKitFrame = SidebarGeometry.convertQuartzBoundsToAppKit(
+                cgWindowBounds,
+                screenFrames: NSScreen.screens.map(\.frame)
+            )
             guard appKitFrame.width >= minimumWindowSize.width,
                   appKitFrame.height >= minimumWindowSize.height else {
                 continue
@@ -164,19 +167,6 @@ final class AppWindowBlueButtonManager {
         }
 
         return snapshots
-    }
-
-    private func convertQuartzBoundsToAppKit(_ quartzBounds: CGRect) -> CGRect {
-        let virtualDesktop = NSScreen.screens.reduce(CGRect.null) { partial, screen in
-            partial.union(screen.frame)
-        }
-
-        guard !virtualDesktop.isNull else {
-            return quartzBounds
-        }
-
-        let convertedY = virtualDesktop.maxY - quartzBounds.origin.y - quartzBounds.height
-        return CGRect(x: quartzBounds.origin.x, y: convertedY, width: quartzBounds.width, height: quartzBounds.height)
     }
 
     private func blueButtonFrame(for windowFrame: CGRect) -> CGRect {

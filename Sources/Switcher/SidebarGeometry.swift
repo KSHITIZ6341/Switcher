@@ -111,16 +111,19 @@ enum SidebarGeometry {
     }
 
     static func convertQuartzBoundsToAppKit(_ quartzBounds: CGRect, screenFrames: [CGRect]) -> CGRect {
-        let virtualDesktop = screenFrames.reduce(CGRect.null) { partial, screenFrame in
-            partial.union(screenFrame)
-        }
-
-        guard !virtualDesktop.isNull else {
+        // NSScreen.screens[0] is the menu-bar display. Quartz/Accessibility
+        // use its top-left as the origin; AppKit uses its bottom-left.
+        guard let primaryDisplay = screenFrames.first else {
             return quartzBounds
         }
 
-        let convertedY = virtualDesktop.maxY - quartzBounds.origin.y - quartzBounds.height
+        let convertedY = primaryDisplay.maxY - quartzBounds.origin.y - quartzBounds.height
         return CGRect(x: quartzBounds.origin.x, y: convertedY, width: quartzBounds.width, height: quartzBounds.height)
+    }
+
+    static func convertAppKitBoundsToQuartz(_ appKitBounds: CGRect, screenFrames: [CGRect]) -> CGRect {
+        // Reflecting across the same axis twice restores the original rectangle.
+        convertQuartzBoundsToAppKit(appKitBounds, screenFrames: screenFrames)
     }
 
     static func appKitFrameContainsCursor(

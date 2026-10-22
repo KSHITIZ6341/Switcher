@@ -77,8 +77,12 @@ final class WindowController {
         throw PinError.windowNotFound(bundleId)
     }
 
+    // Session layout and overlay controls use AppKit screen coordinates.
     func frame(of window: ManagedWindow) throws -> CGRect {
-        try frame(of: window.windowElement)
+        SidebarGeometry.convertQuartzBoundsToAppKit(
+            try frame(of: window.windowElement),
+            screenFrames: NSScreen.screens.map(\.frame)
+        )
     }
 
     func setFrame(_ frame: CGRect, for window: ManagedWindow) throws {
@@ -94,7 +98,11 @@ final class WindowController {
             throw PinError.windowNotResizable(window.bundleId)
         }
 
-        var position = CGPoint(x: frame.origin.x, y: frame.origin.y)
+        let quartzFrame = SidebarGeometry.convertAppKitBoundsToQuartz(
+            frame,
+            screenFrames: NSScreen.screens.map(\.frame)
+        )
+        var position = quartzFrame.origin
         guard let positionValue = AXValueCreate(.cgPoint, &position) else {
             throw PinError.generic("Could not create AX position value.")
         }
@@ -175,6 +183,7 @@ final class WindowController {
         return ""
     }
 
+    // Keep raw AX bounds in Quartz coordinates for CGWindow snapshot matching.
     private func frame(of window: AXUIElement) throws -> CGRect {
         guard let positionValue = copyAXValue(of: window, attribute: kAXPositionAttribute as CFString) else {
             throw PinError.generic("Could not read window position.")
